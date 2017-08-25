@@ -13,11 +13,18 @@
   The F() macro in the Serial statements tells the compiler to keep your strings in PROGMEM
 */
 
+#include <Arduino.h>
+#include <elapsedMillis.h>
+#include <vector>
+#include <SerialEval.h>
+#include <SerialCommand.h>
+
 #include <TimerThree.h> // used for ultrasonic PWM motor control
-#include <PID.h>
+#include <PID_v1.h>
 #include <EEPROM.h>
 #include <EEPROMAnything.h>
-#include <SerialCommand.h>
+#include "boardtype.h"
+
 
 const int N_ANGLES = 360;                                       // # of angles (0..359)
 const int SHOW_ALL_ANGLES = N_ANGLES;                           // value means 'display all angle data, 0..359'
@@ -61,6 +68,8 @@ unsigned int rpm_err = 0;
 unsigned long curMillis;
 unsigned long lastMillis = millis();
 
+const int DEFAULT_MOTOR_PWM_PIN = 23;
+
 const unsigned char COMMAND = 0xFA;        // Start of new packet
 const int INDEX_LO = 0xA0;                 // lowest index value
 const int INDEX_HI = 0xF9;                 // highest index value
@@ -89,7 +98,7 @@ const int VALID_PACKET = 0;
 const int INVALID_PACKET = VALID_PACKET + 1;
 const byte INVALID_DATA_FLAG = (1 << 7);   // Mask for byte 1 of each data quad "Invalid data"
 
-
+SerialCommand sCmd;
 
 /* REF: https://github.com/Xevel/NXV11/wiki
   The bit 7 of byte 1 seems to indicate that the distance could not be calculated.
@@ -121,19 +130,11 @@ uint16_t aryQuality[N_DATA_QUADS] = {0, 0, 0, 0}; // same with 'quality'
 uint16_t motor_rph = 0;
 uint16_t startingAngle = 0;                      // the first scan angle (of group of 4, based on 'index'), in degrees (0..359)
 
-SerialCommand sCmd;
+
 
 boolean ledState = LOW;
 
-#if defined(__AVR_ATmega32U4__) && defined(CORE_TEENSY)  // if Teensy 2.0
-const int ledPin = 11;
-
-#elif defined(__AVR_ATmega32U4__)  // if Leonardo (no LED for Pro Micro)
 const int ledPin = 13;
-
-#elif defined(__MK20DX256__)  // if Teensy 3.1
-const int ledPin = 13;
-#endif
 
 
 // initialization (before 'loop')
@@ -144,12 +145,7 @@ void setup() {
   }
   pinMode(xv_config.motor_pwm_pin, OUTPUT);
   Serial.begin(115200);                            // USB serial
-#if defined(__AVR_ATmega32U4__)
-  Serial1.begin(115200);                           // XV LDS data
-
-#elif defined(__MK20DX256__) // if Teensy 3.1
   Serial1.begin(115200);  // XV LDS data
-#endif
 
   Timer3.initialize(30);                           // set PWM frequency to 32.768kHz
 
@@ -171,8 +167,10 @@ void loop() {
   byte aryInvalidDataFlag[N_DATA_QUADS] = {0, 0, 0, 0}; // non-zero = INVALID_DATA_FLAG or STRENGTH_WARNING_FLAG is set
 
   sCmd.readSerial();  // check for incoming serial commands
+
   if (Serial1.available() > 0) {                  // read byte from LIDAR and relay to USB
     inByte = Serial1.read();                      // get incoming byte:
+
     if (xv_config.raw_data)
       Serial.write(inByte);                 // relay
 
@@ -184,8 +182,7 @@ void loop() {
         eState++;                                 // switch to 'build a packet' state
         Packet[ixPacket++] = inByte;              // store 1st byte of data into 'Packet'
       }
-    }
-    else {                                            // eState == eState_Build_Packet
+    } else {                                            // eState == eState_Build_Packet
       Packet[ixPacket++] = inByte;                    // keep storing input into 'Packet'
       if (ixPacket == PACKET_LENGTH) {                // we've got all the input bytes, so we're done building this packet
         if (eValidatePacket() == VALID_PACKET) {      // Check packet CRC
@@ -212,8 +209,7 @@ void loop() {
                     if (aryInvalidDataFlag[ix] & STRENGTH_WARNING_FLAG)
                       Serial.println(F("S"));
                   }
-                }
-                else {                                         // show clean data
+                } else {                                       // show clean data
                   Serial.print(F("A,"));
                   Serial.print(startingAngle + ix);
                   Serial.print(F(","));
@@ -241,6 +237,7 @@ void loop() {
       }  // if (ixPacket == PACKET_LENGTH)
     }  // if (eState == eState_Find_COMMAND)
   }  // if (Serial1.available() > 0)
+
   if (xv_config.motor_enable) {
     rpmPID.Compute();
     if (pwm_val != pwm_last) {
@@ -250,6 +247,7 @@ void loop() {
     motorCheck();
   }  // if (xv_config.motor_enable)
 }  // loop
+
 /*
    processIndex - Process the packet element 'index'
    index is the index byte in the 90 packets, going from A0 (packet 0, readings 0 to 3) to F9
@@ -272,13 +270,7 @@ uint16_t processIndex() {
   uint16_t data_4deg_index = Packet[OFFSET_TO_INDEX] - INDEX_LO;
   angle = data_4deg_index * N_DATA_QUADS;     // 1st angle in the set of 4
   if (angle == 0) {
-    if (ledState) {
-      ledState = LOW;
-    }
-    else {
-      ledState = HIGH;
-    }
-    digitalWrite(ledPin, ledState);
+    toggleLED();
 
     if (xv_config.show_rpm) {
       Serial.print(F("R,"));
@@ -297,6 +289,18 @@ uint16_t processIndex() {
   } // if (angle == 0)
   return angle;
 }
+
+bool toggleLED() {
+  if (ledState) {
+    ledState = LOW;
+  }
+  else {
+    ledState = HIGH;
+  }
+  digitalWrite(ledPin, ledState);
+  return ledState;
+}
+
 /*
    processSpeed- Process the packet element 'speed'
    speed is two-bytes of information, little-endian. It represents the speed, in 64th of RPM (aka value
@@ -406,15 +410,7 @@ void initEEPROM() {
   xv_config.id = 0x06;
   strcpy(xv_config.version, "1.3.0");
 
-#if defined(__AVR_ATmega32U4__) && defined(CORE_TEENSY)  // if Teensy 2.0
-  xv_config.motor_pwm_pin = 9;  // pin connected N-Channel Mosfet
-
-#elif defined(__AVR_ATmega32U4__)  // if Leonardo or Pro Micro
-  xv_config.motor_pwm_pin = 5;  // pin connected N-Channel Mosfet
-
-#elif defined(__MK20DX256__)  // if Teensy 3.1
-  xv_config.motor_pwm_pin = 33;  // pin connected N-Channel Mosfet
-#endif
+  xv_config.motor_pwm_pin = DEFAULT_MOTOR_PWM_PIN;  // pin connected N-Channel Mosfet
 
   xv_config.rpm_setpoint = 200;  // desired RPM
   xv_config.rpm_min = 200;
@@ -427,16 +423,18 @@ void initEEPROM() {
   xv_config.Kd = 0.0;
 
   xv_config.motor_enable = true;
-  xv_config.raw_data = true;
+  xv_config.raw_data = false;
   xv_config.show_dist = false;
   xv_config.show_rpm = false;
   xv_config.show_interval = false;
   xv_config.show_errors = false;
+
   for (int ix = 0; ix < N_ANGLES; ix++)
     xv_config.aryAngles[ix] = true;
 
   EEPROM_writeAnything(0, xv_config);
 }
+
 /*
    initSerialCommands
 */
@@ -711,16 +709,16 @@ void motorCheck() {  // Make sure the motor RPMs are good else shut it down
 
 void hideRaw() {
   xv_config.raw_data = false;
-  //Serial.println(F(" "));
-  //Serial.println(F("Raw lidar data disabled"));
+  Serial.println(F(" "));
+  Serial.println(F("Raw lidar data disabled"));
 }
 
 void showRaw() {
   xv_config.raw_data = true;
   hideDist();
   hideRPM();
-  //Serial.println(F(" "));
-  //Serial.println(F("Lidar data enabled"));
+  Serial.println(F(" "));
+  Serial.println(F("Lidar data enabled"));
 }
 
 void setRPM() {
@@ -1013,4 +1011,3 @@ void saveConfig() {
   EEPROM_writeAnything(0, xv_config);
   Serial.println(F("Config Saved."));
 }
-
