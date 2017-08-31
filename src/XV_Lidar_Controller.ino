@@ -23,6 +23,8 @@
 #define BOARD_SERIAL1_INIT() Serial1.begin(115200)
 #define BOARD_USE_TIMER3
 
+#if defined(TEENSYDUINO)
+
 #if defined(__AVR_ATmega32U4__)
 // Teensy 2.0
 #define BOARD_MOTOR_PWM_PIN 9
@@ -32,9 +34,14 @@
 // Teensy 3.1/3.2
 #define BOARD_MOTOR_PWM_PIN 6
 #define BOARD_LED_PIN 13
+// Use native frequency writer
 #undef BOARD_USE_TIMER3
-#define BOARD_SET_MOTOR_PWM(pin, freq) analogWriteFrequency(pin, freq)
+#define BOARD_MOTOR_PWM_MIN 0
+#define BOARD_MOTOR_PWM_MAX 4095
 #define BOARD_INIT() analogWriteResolution(12)
+#define BOARD_SET_MOTOR_PWM(pin, freq) analogWriteFrequency(pin, freq)
+
+#endif
 
 #else
 
@@ -63,8 +70,11 @@
 
 #ifdef BOARD_USE_TIMER3
 #include <TimerThree.h> // used for ultrasonic PWM motor control
-#define BOARD_INIT Timer3.initialize(30); // set PWM frequency to 32.768kHz
+// set PWM frequency to 32.768kHz
+#define BOARD_INIT Timer3.initialize(30)
 #define BOARD_SET_MOTOR_PWM(pin, freq) Timer3.pwm(pin, freq)
+#define BOARD_MOTOR_PWM_MIN 0
+#define BOARD_MOTOR_PWM_MAX 1023
 #endif
 
 const int N_ANGLES = 360; // # of angles (0..359)
@@ -545,8 +555,8 @@ void initEEPROM() {
   xv_config.rpm_setpoint = 200; // desired RPM
   xv_config.rpm_min = 0;
   xv_config.rpm_max = 500;
-  xv_config.pwm_min = 0;
-  xv_config.pwm_max = 4095;
+  xv_config.pwm_min = BOARD_MOTOR_PWM_MIN;
+  xv_config.pwm_max = BOARD_MOTOR_PWM_MAX;
   xv_config.sample_time = 20;
   xv_config.Kp = 2.0;
   xv_config.Ki = 1.0;
@@ -833,8 +843,7 @@ void setAngle() {
 void motorOff() {
   xv_config.motor_enable = false;
 
-  // Timer3.pwm(xv_config.motor_pwm_pin, 0);
-  analogWriteFrequency(xv_config.motor_pwm_pin, 0);
+  BOARD_SET_MOTOR_PWM(xv_config.motor_pwm_pin, 0);
 
   Serial.println(F(" "));
   Serial.println(F("Motor off"));
@@ -844,8 +853,7 @@ void motorOn() {
   xv_config.motor_enable = true;
   rpm_err = 0; // reset rpm error
 
-  // Timer3.pwm(xv_config.motor_pwm_pin, pwm_val);
-  analogWriteFrequency(xv_config.motor_pwm_pin, pwm_val);
+  BOARD_SET_MOTOR_PWM(xv_config.motor_pwm_pin, pwm_val);
 
   Serial.println(F(" "));
   Serial.println(F("Motor on"));
