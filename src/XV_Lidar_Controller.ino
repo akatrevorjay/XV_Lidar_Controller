@@ -17,7 +17,6 @@
 #include <EEPROM.h>
 #include <EEPROMAnything.h>
 #include <PID_v1.h>
-// #include <PID_AutoTune_v0.h>
 #include <SerialCommand.h>
 
 // Board specifics
