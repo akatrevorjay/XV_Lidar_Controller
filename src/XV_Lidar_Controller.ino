@@ -167,19 +167,12 @@ const byte STRENGTH_WARNING_FLAG =
 */
 const byte BAD_DATA_MASK = (INVALID_DATA_FLAG | STRENGTH_WARNING_FLAG);
 
-// enum eStates {
-//   eState_Init;
-//   // find 0xFA (COMMAND) in input stream
-//   eState_Find_COMMAND;
-//   eState_Build_Packet;
-// }
-
 // find 0xFA (COMMAND) in input stream
 const byte eState_Find_COMMAND = 0;
 // 2nd state: build the packet
 const byte eState_Build_Packet = 1;
 
-int eState = eState_Find_COMMAND;
+int eState;
 
 PID rpmPID(&motor_rpm, &pwm_val, &xv_config.rpm_setpoint, xv_config.Kp,
            xv_config.Ki, xv_config.Kd, DIRECT);
@@ -298,10 +291,6 @@ void resetState() {
 }
 
 void processPacket() {
-  // if (xv_config.raw_packet)
-  //   // relay
-  //   Serial.print(Packet);
-
   if (eValidatePacket() != VALID_PACKET) {
     // we have encountered a CRC error
     if (xv_config.show_errors)
@@ -561,7 +550,6 @@ void initEEPROM() {
 
   xv_config.motor_enable = true;
   xv_config.raw_data = false;
-  xv_config.raw_packet = false;
   xv_config.show_dist = false;
   xv_config.show_rpm = false;
   xv_config.show_interval = false;
@@ -595,8 +583,6 @@ void initSerialCommands() {
 
   sCmd.addCommand("ShowRaw", showRaw);
   sCmd.addCommand("HideRaw", hideRaw);
-  sCmd.addCommand("ShowPacket", showRawPacket);
-  sCmd.addCommand("HidePacket", hideRawPacket);
 
   sCmd.addCommand("ShowDist", showDist);
   sCmd.addCommand("HideDist", hideDist);
@@ -871,24 +857,8 @@ void showRaw() {
   xv_config.raw_data = true;
   hideDist();
   hideRPM();
-  hideRawPacket();
   Serial.println(F(" "));
   Serial.println(F("Lidar data enabled"));
-}
-
-void hideRawPacket() {
-  xv_config.raw_packet = false;
-  Serial.println(F(" "));
-  Serial.println(F("Raw lidar packet disabled"));
-}
-
-void showRawPacket() {
-  xv_config.raw_packet = true;
-  hideDist();
-  hideRPM();
-  hideRaw();
-  Serial.println(F(" "));
-  Serial.println(F("Lidar packet enabled"));
 }
 
 void setRPM() {
