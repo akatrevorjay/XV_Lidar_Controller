@@ -14,41 +14,58 @@
   in PROGMEM
 */
 
-#include <Arduino.h>
 #include <EEPROM.h>
 #include <EEPROMAnything.h>
 #include <PID_v1.h>
 // #include <PID_AutoTune_v0.h>
 #include <SerialCommand.h>
-// #include <TimerThree.h> // used for ultrasonic PWM motor control
-// #include <FrequencyTimer2.h>
+#include <std::vector>
 
 // Board specifics
+#define BOARD_INIT() Serial1.begin(115200)
+
 #if defined(__AVR_ATmega32U4__)
-#define BOARD_SETUP() Serial1.begin(115200)
+// Teensy 2.0
 #define BOARD_MOTOR_PWM_PIN 9
 #define BOARD_LED_PIN 11
+#define BOARD_USE_TIMER3
 
 #elif defined(__MK20DX256__)
-#define BOARD_SETUP() Serial1.begin(115200)
+// Teensy 3.1/3.2
 #define BOARD_MOTOR_PWM_PIN 6
 #define BOARD_LED_PIN 13
+#define BOARD_SET_MOTOR_PWM(pin, freq) analogWriteFrequency(pin, freq)
 
-#elif defined(__AVR_ATmega32U4__) // Ieonardo/pro micro
-#define BOARD_SETUP() Serial1.begin(115200)
+#else
+#include <Arduino.h>
+#define BOARD_USE_TIMER3
+
+#if defined(__AVR_ATmega32U4__)
+// Leonardo/Pro Micro
 #define BOARD_MOTOR_PWM_PIN 5
 #if !defined(ARDUINO_AVR_LEONARDO)
 #define BOARD_LED_PIN 13
 #endif
 
 #elif defined(ARDUINO_AVR_YUN)
+// Yun
 #define BOARD_MOTOR_PWM_PIN 29
 #define BOARD_LED_PIN 13
-#define BOARD_SETUP() Serial1.begin(115200)
+
+#elif defined(ARDUINO_AVR_NANO)
+// Nano
+#define BOARD_MOTOR_PWM_PIN 29
+#define BOARD_LED_PIN 13
 
 #else
 #error "Unknown board."
 
+#endif
+#endif
+
+#ifdef BOARD_USE_TIMER3
+#include <TimerThree.h> // used for ultrasonic PWM motor control
+#define BOARD_SET_MOTOR_PWM(pin, freq) Timer3.pwm(pin, freq)
 #endif
 
 const int N_ANGLES = 360; // # of angles (0..359)
@@ -196,22 +213,24 @@ void Burp(void) { burpCount++; }
 void setup() {
   EEPROM_readAnything(0, xv_config);
   // verify EEPROM values have been initialized
-  // if ( xv_config.id != EEPROM_ID)
-  initEEPROM();
-  // else
-  //   xv_config.motor_pwm_pin = BOARD_MOTOR_PWM_PIN;
+  if (xv_config.id != EEPROM_ID)
+    initEEPROM();
+  else
+    xv_config.motor_pwm_pin = BOARD_MOTOR_PWM_PIN;
 
   Serial.begin(115200); // USB serial
+  Serial.println(F("Init"));
 
-  BOARD_SETUP();
+  BOARD_INIT();
 
   pinMode(xv_config.motor_pwm_pin, OUTPUT);
-  analogWriteResolution(12);
 
-  // Timer3.initialize(30);                           // set PWM frequency
-  // to 32.768kHz FrequencyTimer2::setPeriod(30); FrequencyTimer2::enable();
-  // FrequencyTimer2::setOnOverflow(Burp);
-  // FrequencyTimer2::setOnOverflow(0);
+  #if defined(BOARD_USE_TIMER3)
+    // set PWM frequency to 32.768kHz FrequencyTimer2::setPeriod(30); FrequencyTimer2::enable();
+    Timer3.initialize(30);
+  #else
+    analogWriteResolution(12);
+  #endif
 
   rpmPID.SetOutputLimits(xv_config.pwm_min, xv_config.pwm_max);
   rpmPID.SetSampleTime(xv_config.sample_time);
@@ -358,9 +377,7 @@ void updateMotor() {
 
   if (pwm_val != pwm_last) {
     // replacement for analogWrite()
-    // Timer3.pwm(xv_config.motor_pwm_pin, pwm_val);
-    // FrequencyTimer2::setPeriod(pwm_val);
-    analogWriteFrequency(xv_config.motor_pwm_pin, pwm_val);
+    BOARD_SET_MOTOR_PWM(xv_config.motor_pwm_pin, pwm_val);
 
     pwm_last = pwm_val;
   }
