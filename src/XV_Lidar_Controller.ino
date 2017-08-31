@@ -22,23 +22,23 @@
 #include <std::vector>
 
 // Board specifics
-#define BOARD_INIT() Serial1.begin(115200)
+#define BOARD_SERIAL1_INIT() Serial1.begin(115200)
+#define BOARD_USE_TIMER3
 
 #if defined(__AVR_ATmega32U4__)
 // Teensy 2.0
 #define BOARD_MOTOR_PWM_PIN 9
 #define BOARD_LED_PIN 11
-#define BOARD_USE_TIMER3
 
 #elif defined(__MK20DX256__)
 // Teensy 3.1/3.2
 #define BOARD_MOTOR_PWM_PIN 6
 #define BOARD_LED_PIN 13
+#undef BOARD_USE_TIMER3
 #define BOARD_SET_MOTOR_PWM(pin, freq) analogWriteFrequency(pin, freq)
+#define BOARD_INIT() analogWriteResolution(12)
 
 #else
-#include <Arduino.h>
-#define BOARD_USE_TIMER3
 
 #if defined(__AVR_ATmega32U4__)
 // Leonardo/Pro Micro
@@ -65,6 +65,7 @@
 
 #ifdef BOARD_USE_TIMER3
 #include <TimerThree.h> // used for ultrasonic PWM motor control
+#define BOARD_INIT Timer3.initialize(30); // set PWM frequency to 32.768kHz
 #define BOARD_SET_MOTOR_PWM(pin, freq) Timer3.pwm(pin, freq)
 #endif
 
@@ -216,21 +217,19 @@ void setup() {
   if (xv_config.id != EEPROM_ID)
     initEEPROM();
   else
+    // This is not configurable. *puts on shades*
     xv_config.motor_pwm_pin = BOARD_MOTOR_PWM_PIN;
 
   Serial.begin(115200); // USB serial
   Serial.println(F("Init"));
 
-  BOARD_INIT();
+  BOARD_SERIAL1_INIT();
 
   pinMode(xv_config.motor_pwm_pin, OUTPUT);
 
-  #if defined(BOARD_USE_TIMER3)
-    // set PWM frequency to 32.768kHz FrequencyTimer2::setPeriod(30); FrequencyTimer2::enable();
-    Timer3.initialize(30);
-  #else
-    analogWriteResolution(12);
-  #endif
+#if defined(BOARD_INIT)
+  BOARD_INIT();
+#endif
 
   rpmPID.SetOutputLimits(xv_config.pwm_min, xv_config.pwm_max);
   rpmPID.SetSampleTime(xv_config.sample_time);
