@@ -88,11 +88,10 @@ struct EEPROM_Config {
   double Ki;
   double Kd;
 
-  boolean motor_enable; // to spin the laser or not.  No data when not spinning
-  boolean raw_data;     // to retransmit the serial data to the USB port
-  boolean raw_packet;   // to retransmit the serial packets to the USB port
-  boolean relay_input;
-  boolean show_dist;     //  controlled by ShowDist and HideDist commands
+  boolean motor_enable;  // to spin the laser or not.  No data when not spinning
+  boolean raw_data;      // to retransmit the serial data to the USB port
+  boolean relay_input;   // to relay input from USB to unit.
+  boolean show_dist;     // controlled by ShowDist and HideDist commands
   boolean show_rpm;      // controlled by ShowRPM and HideRPM commands
   boolean show_interval; // true = show time interval, once per revolution, at
                          // angle=0
@@ -237,10 +236,15 @@ void setup() {
 }
 
 void loop() {
-  // if (!xv_config.relay_input) {
-  // check for incoming serial commands
-  sCmd.readSerial();
-  // }
+  if (Serial.available() > 0) {
+    if (xv_config.relay_input) {
+      inByte = Serial.read();
+      Serial1.write(inByte);
+    } else {
+      // check for incoming serial commands
+      sCmd.readSerial();
+    }
+  }
 
   if (Serial1.available() > 0) {
     inByte = Serial1.read();
@@ -549,7 +553,8 @@ void initEEPROM() {
   xv_config.Kd = 0.0;
 
   xv_config.motor_enable = true;
-  xv_config.raw_data = false;
+  xv_config.raw_data = true;
+  xv_config.relay_input = false;
   xv_config.show_dist = false;
   xv_config.show_rpm = false;
   xv_config.show_interval = false;
@@ -583,15 +588,20 @@ void initSerialCommands() {
 
   sCmd.addCommand("ShowRaw", showRaw);
   sCmd.addCommand("HideRaw", hideRaw);
+  sCmd.addCommand("RelayInput", relayInput);
 
   sCmd.addCommand("ShowDist", showDist);
   sCmd.addCommand("HideDist", hideDist);
+
   sCmd.addCommand("ShowRPM", showRPM);
   sCmd.addCommand("HideRPM", hideRPM);
+
   sCmd.addCommand("ShowErrors", showErrors);
   sCmd.addCommand("HideErrors", hideErrors);
+
   sCmd.addCommand("ShowInterval", showInterval);
   sCmd.addCommand("HideInterval", hideInterval);
+
   sCmd.addCommand("ShowAll", showAll);
   sCmd.addCommand("HideAll", hideAll);
 }
@@ -709,6 +719,17 @@ void hideDist() {
     Serial.println(F("Hiding Distance data"));
   }
 }
+
+void relayInput() {
+  hideAll();
+
+  Serial.println(F(" "));
+  Serial.println(F("Relaying input to device from now on. Reset to go back."));
+  Serial.println(F(" "));
+
+  xv_config.relay_input = true;
+}
+
 /*
    doSetAngle - Multi-angle range(s) implementation - DSH
    Command: SetAngles ddd, ddd-ddd, etc.
