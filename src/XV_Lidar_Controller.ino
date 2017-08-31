@@ -19,7 +19,6 @@
 #include <PID_v1.h>
 // #include <PID_AutoTune_v0.h>
 #include <SerialCommand.h>
-#include <std::vector>
 
 // Board specifics
 #define BOARD_SERIAL1_INIT() Serial1.begin(115200)
